@@ -8,13 +8,24 @@ clear
 %a Sequential Monte Carlo Probability Hypothesis Density (SMC-PHD)
 %approach; Journal of the Acoustical Society of America.
 
-%//////////// LOAD sample Ground Truth and Measurement data //////////////
+%% ////////////  LOAD AUDIO DATA                           //////////////
 
-load('Measurement_and_GT_demo.mat');
+[file, path] = uigetfile('*.wav', 'Selected the file to analyse...');
+[x,fs] = audioread([path file]);
+x = x(:,1); %select first channel
+
+% load('Measurement_and_GT_demo.mat');
+slide_incr = 1024;
+dt = 0.0053; %time increment in s (default)
+win_width = 2048;
+win_width_s = 2048/fs;
+peak_thr = 6;
+Nvalid = 292;
+freqrange = [2000,50000];
+
 % GT = ground truth data
 % Zset = measurements (spectral peaks)
 % dt = time step between consecutive windows (s)
-
 
 %% //////////// INITIALIZE SMC-PHD PARAMETERS and MODELS /////////////
 % %--------------- Parameters for SMCPHD ------------------------------------
@@ -51,60 +62,87 @@ RBFnet.vari=vari; % (Q_j)
 % Learned process noise (n_k) - Eq. (7):
 models.Q = [39.2,0;0,7326]; 
 
-%% /////////// RUN SMC-PHD filter /////////////////
 
-%Get state estimates and their labels:
-[Xk,XkTag] = SMCPHD_RBF_adaptivebirth(Zset,parameters,models,RBFnet);
+sec_analysis = 4;
+N_analysis = round(sec_analysis * fs);
+N_max = length(x);
+idx = 1:N_analysis:N_max;
 
-% Collect estimated states into tracks (whistle contours) based on their labels:
-Track  = track_labels(XkTag,Xk,models);
-
-% Impose track length criteria to get detections that match specified criterion:
-tl=10;%target length criteria
-c=1;ind=[];
-for l=1:size(Track,2)
-    if numel(Track(l).time)>=tl
-        ind(c)=l;
-        c=c+1;
+for i = 1:length(idx)
+    if i == length(idx)
+        y_part = x(idx(i):end);
     else
-        continue
+        y_part = x(idx(i) : idx(i) + N_analysis - 1);
     end
-end
-DT=Track(ind); % detected whistles
+%     plot(y_part)
+freqrange = [2000,50000];
+    %% //////////// MAKE MEASUREMENTS (Zsets) ///////////////
+    disp('Making measurements')
+    [Zset] = preprocess_getZset(win_width_s,dt,fs,y_part,freqrange,peak_thr);
 
-%% ////////// PLOT RESULTS ///////////////
-figure,
-subplot(211) %plot measurements
-T=0:models.dt:size(Zset,2)*models.dt-models.dt; %time vector for plotting
-for k=1:size(Zset,2)
-plot(T(k),Zset{k},'k.'),hold on
-end
-ylabel('Frequency (Hz)')
-xlabel('Time (s)')
-xlim([0,T(end)])
-title('Measurements')
-
-subplot(212)
-% Plot GT:
-col= [0,0,0]+0.8;
-for k=1:size(GT,2)
-    if GT(k).valid==1
-    plot(GT(k).time,GT(k).freq,'-','Color', col,'LineWidth',4),hold on
-    else
-    plot(GT(k).time,GT(k).freq,':','Color', col,'LineWidth',4),hold on    
+    %% /////////// RUN SMC-PHD filter /////////////////
+    disp('Running SMC-PHD filter')
+    %Get state estimates and their labels:
+    [Xk,XkTag] = SMCPHD_RBF_adaptivebirth(Zset,parameters,models,RBFnet);
+    
+    % Collect estimated states into tracks (whistle contours) based on their labels:
+    Track  = track_labels(XkTag,Xk,models);
+    
+    % Impose track length criteria to get detections that match specified criterion:
+    tl=10;%target length criteria
+    c=1;ind=[];
+    for l=1:size(Track,2)
+        if numel(Track(l).time)>=tl
+            ind(c)=l;
+            c=c+1;
+        else
+            continue
+        end
     end
+    DT=Track(ind); % detected whistles
+    % Aqui faltaría comprobar si DT está vacío. Sino, no se crearía el
+    % evento de silbido
+        
+    %% ////////// PLOT RESULTS ///////////////
+    figure(1),subplot(1,1,1)
+     %plot measurements
+    T=0:models.dt:size(Zset,2)*models.dt-models.dt; %time vector for plotting
+    for k=1:size(Zset,2)
+        if ~isempty(Zset{k})
+           plot(T(k),Zset{k},'k.'),hold on
+        end
+    end
+    ylabel('Frequency (Hz)')
+    xlabel('Time (s)')
+    xlim([0,T(end)])
+    title('Measurements')
+    
+%      subplot(212)
+%     % Plot GT:
+%     col= [0,0,0]+0.8;
+%     for k=1:size(GT,2)
+%         if GT(k).valid==1
+%         plot(GT(k).time,GT(k).freq,'-','Color', col,'LineWidth',4),hold on
+%         else
+%         plot(GT(k).time,GT(k).freq,':','Color', col,'LineWidth',4),hold on    
+%         end
+%     end
+    
+    % Plot Detections:
+    figure(1),subplot(1,1,1)
+    for k=1:size(DT,2)
+        plot(DT(k).time,DT(k).freq,'-','LineWidth',2),hold on
+    end
+    
+    ylabel('Frequency (Hz)')
+    xlabel('Time (s)')
+%     xlim([0,T(end)])
+    title('Measured peaks and SMC-PHD detections')
+    h1 = plot(NaN,NaN,'b.','LineWidth',4);
+%     subplot(212), h2=plot(NaN,NaN,':','Color', col,'LineWidth',4);
+    h2 = plot(NaN,NaN,'r-','LineWidth',2);
+    legend([h1 h2],'Detected peaks', 'SMC-PHD detections')
+    pause();
+    clf(1)
 end
-
-% Plot Detections:
-for k=1:size(DT,2)
-    plot(DT(k).time,DT(k).freq,'-','LineWidth',2),hold on
-end
-
-ylabel('Frequency (Hz)')
-xlabel('Time (s)')
-xlim([0,T(end)])
-title('Ground truth data and SMC-PHD detections')
-subplot(212), h1=plot(NaN,NaN,'-','Color', col,'LineWidth',4);
-subplot(212), h2=plot(NaN,NaN,':','Color', col,'LineWidth',4);
-subplot(212), h3=plot(NaN,NaN,'r-','LineWidth',2);
-legend([h1,h2,h3],'Ground truth (valid)', 'Ground truth (not valid)','SMC-PHD detection')
+close all
