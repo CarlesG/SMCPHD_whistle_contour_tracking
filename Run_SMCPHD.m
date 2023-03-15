@@ -69,6 +69,7 @@ N_max = length(x);
 idx = 1:N_analysis:N_max;
 
 for i = 1:length(idx)
+    disp(['Iteration: ' num2str(i) ' of ' num2str(length(idx))])
     if i == length(idx)
         y_part = x(idx(i):end);
     else
@@ -86,6 +87,7 @@ freqrange = [2000,50000];
     [Xk,XkTag] = SMCPHD_RBF_adaptivebirth(Zset,parameters,models,RBFnet);
     
     % Collect estimated states into tracks (whistle contours) based on their labels:
+    disp('Tracking based on their labels')
     Track  = track_labels(XkTag,Xk,models);
     
     % Impose track length criteria to get detections that match specified criterion:
@@ -133,7 +135,7 @@ freqrange = [2000,50000];
     for k=1:size(DT,2)
         plot(DT(k).time,DT(k).freq,'-','LineWidth',2),hold on
     end
-    
+    disp(['Number of whistles detected: ' num2str(length(DT))])
     ylabel('Frequency (Hz)')
     xlabel('Time (s)')
 %     xlim([0,T(end)])
@@ -142,7 +144,7 @@ freqrange = [2000,50000];
 %     subplot(212), h2=plot(NaN,NaN,':','Color', col,'LineWidth',4);
     h2 = plot(NaN,NaN,'r-','LineWidth',2);
     legend([h1 h2],'Detected peaks', 'SMC-PHD detections')
-    pause();
+%     pause();
     clf(1)
 end
 close all
