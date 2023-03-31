@@ -10,6 +10,7 @@ clear
 
 %% ////////////  LOAD AUDIO DATA                           //////////////
 clear all, close all
+addpath('pyknogram_functions'); % All pyknogram functions
 [file, path] = uigetfile('*.wav', 'Selected the file to analyse...');
 [x,fs] = audioread([path file]);
 disp(['Working on the file: ' file])
@@ -70,6 +71,13 @@ N_max = length(x);
 idx = 1:N_analysis:N_max;
 E_sp = [];
 
+
+% Settings for the definition of the filter Bank of piknogram
+BW=1000; % BW in Hz
+BWoverlap=50; % BW in %
+flow=freqrange(1);fhigh=min([freqrange(2) fs/2-BW/2]); % MINIMUM flow -> flow=round(BW/2)
+Tl = sec_analysis;
+
 for i = 1:length(idx)
 %     clf(1)
     disp(['Iteration: ' num2str(i) ' of ' num2str(length(idx))])
@@ -78,43 +86,134 @@ for i = 1:length(idx)
     else
         y_part = x(idx(i) : idx(i) + N_analysis - 1);
     end
+
     slide_incr = round(dt*fs);
     numstps = ceil((length(y_part) - win_width) / slide_incr); %Number of overlapping windows
+    %% //////////// PIKNOGRAM IMPLEMENTATION ////////////////
+
+    [FW,BW_est, ndraw] = pyknogram_freqdomain(y_part, fs, flow, fhigh, BW, BWoverlap, 10e-3);
+    X=repmat(ndraw,1,size(FW,2)); 
+    %  Get points with a Bandwidth lower than a given value (BW_thre)
+    BW_thre=BW/4;
+    BW_est(1,:)=BW; % To get rid of some problems in the BW estimation of the first and last
+    BW_est(end,:)=BW; % To get rid of some problems in the BW estimation of the first and last
+    idx_BW=find(BW_est<BW_thre);
+    
+    % ----------
+    %  Point density based filter
+    [P,idx_new]  = kernel_density( FW, ndraw, BW, BWoverlap );
+    idx_combined = intersect(idx_BW,idx_new');   
+    
+    % Create a struct and store possible whistles
+    Pyk=struct('time',cell(1,length(idx_combined)),'freq',[],'ampl',[],'label',[],'done',[]);
+    kk=num2cell(X(idx_combined));[Pyk.time]=kk{:};
+    kk=num2cell(FW(idx_combined));[Pyk.freq]=kk{:};
+    
+    % Represent candidates
+%     figure(2);clf;
+%     %sh=scatter([Pyk.time],[Pyk.freq],[],[Pyk.ampl],'filled');
+%     sh=scatter([Pyk.time],[Pyk.freq],[],'b','filled');
+%     sh.SizeData=15; 
+%     title(['PRWE method']);
+%     ylabel('Frequency [kHz]');xlabel('Time [sec.]');
+%     yt=flow:2000:fhigh;set(gca, 'YTick',yt, 'YTickLabel',yt/1000);
+%     yt = get(gca, 'YTick');set(gca, 'YTick',yt, 'YTickLabel',yt/1000);
+%     axis([0 Tl flow fhigh]);
+%     set(gcf,'color','w');box on;grid;
+
+    % Ordering candidates;
+    tiempo = [Pyk.time];
+    frecuencia = [Pyk.freq];
+    [tiempo_ordenado, ind_ordenado] = sort(tiempo);
+    frecuencia_ordenado = frecuencia(ind_ordenado);
+    [tiempo_unico,ia,ic] = unique(tiempo_ordenado);
+    Zset = cell([1 length(tiempo_unico)]);
+    ic_unico = unique(ic);
+
+    for ii = 1:length(Zset)
+        Zset{ii} = sort(frecuencia_ordenado(ic == ic_unico(ii)));
+    end
+    
+    % Represent ordered candidates
+%     figure(2),clf
+%     for j = 1:length(tiempo_unico)
+%         plot(tiempo_unico(j),Zset{j},'b.'),hold on
+%     end
+%     title('Candidates Picknogram')
+%     ylabel('Frequency [kHz]');xlabel('Time [sec.]');
+%     yt=flow:2000:fhigh;set(gca, 'YTick',yt, 'YTickLabel',yt/1000);
+%     yt = get(gca, 'YTick');set(gca, 'YTick',yt, 'YTickLabel',yt/1000);
+%     axis([0 Tl flow fhigh]);
+%     set(gcf,'color','w');box on;grid;
+
+    % Conformation of all complet Zset candidates
+    Zset_all = cell(1, numstps);
+    t=(0:(size(Zset_all,2))).*dt;  
+    
+    for z = 1:length(Zset)
+        [~,ix] = min(abs(t - tiempo_unico(z)));
+        Zset_all{ix} = Zset{z};
+    end
+
+    Zset_pic = Zset_all;
+%     %count the number of elements different of empty in the cell array
+    %count = length(Zset_all) - nnz(cellfun(@isempty,Zset_all))
     %% //////////// MAKE MEASUREMENTS (Zsets) ///////////////
     disp('Making measurements')
-    [Zset] = preprocess_getZset(win_width_s,dt,fs,y_part,freqrange,peak_thr);
+    [Zset_sp] = preprocess_getZset(win_width_s,dt,fs,y_part,freqrange,peak_thr);
 
     %% /////////// RUN SMC-PHD filter /////////////////
     disp('Running SMC-PHD filter')
     %Get state estimates and their labels:
-    [Xk,XkTag] = SMCPHD_RBF_adaptivebirth(Zset,parameters,models,RBFnet);
+    [Xk_pic,XkTag_pic] = SMCPHD_RBF_adaptivebirth(Zset_pic,parameters,models,RBFnet);
+    [Xk_sp,XkTag_sp] = SMCPHD_RBF_adaptivebirth(Zset_sp,parameters,models,RBFnet);
     
     % Collect estimated states into tracks (whistle contours) based on their labels:
     disp('Tracking based on their labels')
-    Track  = track_labels(XkTag,Xk,models);
+    Track_pic  = track_labels(XkTag_pic,Xk_pic,models);
+    Track_sp  = track_labels(XkTag_sp,Xk_sp,models);
     
     % Impose track length criteria to get detections that match specified criterion:
-    tl=10;%target length criteria
-    c=1;ind=[];
-    for l=1:size(Track,2)
-        if numel(Track(l).time)>=tl
-            ind(c)=l;
-            c=c+1;
+    tl_sp=10;%target length criteria
+    c_sp=1;ind_sp=[];
+    for l=1:size(Track_sp,2)
+        if numel(Track_sp(l).time)>=tl_sp
+            ind_sp(c_sp)=l;
+            c_sp=c_sp+1;
         else
             continue
         end
     end
-    DT_sp = Track(ind); % detected whistles
-    % Aqui faltaría comprobar si DT está vacío. Sino, no se crearía el
-    % evento de silbido
-        
-    %% ////////// PLOT RESULTS ///////////////
+
+    tl_pic=3;%target length criteria
+    c_pic=1;ind_pic=[];
+    for l=1:size(Track_pic,2)
+        if numel(Track_pic(l).time)>=tl_pic
+            ind_pic(c_pic)=l;
+            c_pic=c_pic+1;
+        else
+            continue
+        end
+    end
+
+    if ~isempty(ind_sp)
+        DT_sp = Track_sp(ind_sp); % detected whistles
+    else
+        DT_sp = [];
+    end
+
+    if ~isempty(ind_pic)
+        DT_pic = Track_pic(ind_pic); % detected whistles
+    else
+        DT_pic = [];
+    end       
+    %% ////////// PLOT RESULTS DETECTIONS SPECTROGRAM ///////////////
     figure(1),clf
      %plot measurements
-    t = (0:1:(size(Zset,2)-1)) * models.dt + sec_analysis * (i-1); %time vector for plotting
-    for k=1:size(Zset,2)
-        if ~isempty(Zset{k})
-           plot(t(k),Zset{k},'k.'),hold on
+    t = (0:1:(size(Zset_sp,2)-1)) * models.dt + sec_analysis * (i-1); %time vector for plotting
+    for k=1:size(Zset_sp,2)
+        if ~isempty(Zset_sp{k})
+           plot(t(k),Zset_sp{k},'k.'),hold on
         end
     end
     ylabel('Frequency (Hz)')
@@ -134,7 +233,6 @@ for i = 1:length(idx)
 %     end
     
     % Plot Detections:
-    figure(1)
     for k=1:size(DT_sp,2)
         DT_sp(k).time = DT_sp(k).time + idx(i)/fs;
         plot(DT_sp(k).time,DT_sp(k).freq,'-','LineWidth',2)
@@ -143,10 +241,38 @@ for i = 1:length(idx)
     ylabel('Frequency (kHz)','Interpreter','latex')
     xlabel('Time (s)','Interpreter','latex')
 %     xlim([0,T(end)])
-    title('Candidates spectrogram and SMC-PHD detections','Interpreter','latex')
+    title('Candidates vs detections SPECTROGRAM','Interpreter','latex')
     yt = freqrange(1):2000:freqrange(2);
     set(gca,'YTick',yt,'YTicklabel',yt*1e-3);
     set(gcf,'color','w');box on; grid;
+
+    figure(2),clf
+     %plot measurements
+    t = (0:1:(size(Zset_pic,2)-1)) * models.dt + sec_analysis * (i-1); %time vector for plotting
+    for k=1:size(Zset_pic,2)
+        if ~isempty(Zset_pic{k})
+           plot(t(k),Zset_pic{k},'k.'),hold on
+        end
+    end
+    ylabel('Frequency (Hz)')
+    xlabel('Time (s)')
+    xlim([min(t) max(t)])
+%     title('Measurements')
+    
+    for m=1:size(DT_pic,2)
+	    DT_pic(m).time = (DT_pic(m).time * fs + idx(i))./fs;
+        plot(DT_pic(m).time, DT_pic(m).freq,'LineWidth',1.5),hold on
+    end
+
+    title('Candidates vs detections PIKNOGRAM','Interpreter','latex')
+    xlabel('time (s)','Interpreter','latex')
+    ylabel('frequency (kHz)','Interpreter','latex')
+    yt=flow:2000:fhigh;set(gca, 'YTick',yt, 'YTickLabel',yt/1000);
+    yt = get(gca, 'YTick');set(gca, 'YTick',yt, 'YTickLabel',yt/1000);
+    axis([min(t) max(t) flow fhigh]);
+    set(gcf,'color','w');box on;grid;
+
+
     % Spectrogram representation in dB/Hz
     figure(3),spectrogram(y_part,2048,[],freqrange(1):100:freqrange(2),fs,'yaxis'); %remember that the units are dB/Hz 
     E_sp = [E_sp DT_sp];
