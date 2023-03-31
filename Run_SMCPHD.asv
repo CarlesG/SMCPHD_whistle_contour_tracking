@@ -135,18 +135,23 @@ for i = 1:length(idx)
     % Plot Detections:
     figure(1)
     for k=1:size(DT_sp,2)
-        DT_sp(k).time = DT_sp(k).time + idx(i)/fs;
+        DT_sp(k).time = DT_sp(k).time + idx(i) * fs;
         plot(DT_sp(k).time,DT_sp(k).freq,'-','LineWidth',2)
     end
-    disp(['Number of whistles detected: ' num2str(length(DT_sp))])
-    ylabel('Frequency (kHz)','Interpreter','latex')
-    xlabel('Time (s)','Interpreter','latex')
+    disp(['Number of whistles detected: ' num2str(length(DT))])
+    ylabel('Frequency (kHz)')
+    xlabel('Time (s)')
 %     xlim([0,T(end)])
     title('Candidates spectrogram and SMC-PHD detections','Interpreter','latex')
-    yt = freqrange(1):2000:freqrange(2);
+    yt = freqrange(1):2:freqrange(2);
     set(gca,'YTick',yt,'YTicklabel',yt*1e-3);
-    set(gcf,'color','w');box on; grid;
-% Spectrogram representation in dB/Hz
-figure(3),spectrogram(y_part,2048,[],freqrange(1):100:freqrange(2),fs,'yaxis'); %remember that the units are dB/Hz 
+    se
+    yticks()
+%     h1 = plot(NaN,NaN,'b.','LineWidth',4);
+% %     subplot(212), h2=plot(NaN,NaN,':','Color', col,'LineWidth',4);
+%     h2 = plot(NaN,NaN,'r-','LineWidth',2);
+%     legend([h1 h2],'Detected peaks', 'SMC-PHD detections')
+% %     pause();
+%     clf(1)
 end
 close all
