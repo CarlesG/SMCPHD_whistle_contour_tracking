@@ -12,7 +12,7 @@ clear
 clear all, close all
 [file, path] = uigetfile('*.wav', 'Selected the file to analyse...');
 [x,fs] = audioread([path file]);
-disp(['Working on file: ' file])
+disp(['Working on the file: ' file])
 x = x(:,1); %select first channel
 
 % load('Measurement_and_GT_demo.mat');
@@ -22,7 +22,7 @@ win_width = 2048;
 win_width_s = 2048/fs;
 peak_thr = 6;
 Nvalid = 292;
-freqrange = [2000,50000];
+freqrange = [5000, 35000];
 
 % GT = ground truth data
 % Zset = measurements (spectral peaks)
@@ -63,12 +63,13 @@ RBFnet.vari=vari; % (Q_j)
 % Learned process noise (n_k) - Eq. (7):
 models.Q = [39.2,0;0,7326]; 
 
-
+% Settings for split the audio file in sections of sec_analysis duration
 sec_analysis = 1;
 N_analysis = round(sec_analysis * fs);
 N_max = length(x);
 idx = 1:N_analysis:N_max;
 E_sp = [];
+
 for i = 1:length(idx)
 %     clf(1)
     disp(['Iteration: ' num2str(i) ' of ' num2str(length(idx))])
@@ -77,8 +78,8 @@ for i = 1:length(idx)
     else
         y_part = x(idx(i) : idx(i) + N_analysis - 1);
     end
-%     plot(y_part)
-    freqrange = [2000,50000];
+    slide_incr = round(dt*fs);
+    numstps = ceil((length(y_part) - win_width) / slide_incr); %Number of overlapping windows
     %% //////////// MAKE MEASUREMENTS (Zsets) ///////////////
     disp('Making measurements')
     [Zset] = preprocess_getZset(win_width_s,dt,fs,y_part,freqrange,peak_thr);
@@ -146,7 +147,9 @@ for i = 1:length(idx)
     yt = freqrange(1):2000:freqrange(2);
     set(gca,'YTick',yt,'YTicklabel',yt*1e-3);
     set(gcf,'color','w');box on; grid;
-% Spectrogram representation in dB/Hz
-figure(3),spectrogram(y_part,2048,[],freqrange(1):100:freqrange(2),fs,'yaxis'); %remember that the units are dB/Hz 
+    % Spectrogram representation in dB/Hz
+    figure(3),spectrogram(y_part,2048,[],freqrange(1):100:freqrange(2),fs,'yaxis'); %remember that the units are dB/Hz 
+    E_sp = [E_sp DT_sp];
+    DT_sp = [];
 end
 close all
